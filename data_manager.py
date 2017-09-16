@@ -28,7 +28,7 @@ class DataManager(object):
         self._preprocess_train()
         self._preprocess_test()
 
-        # self._preprocess_nans()
+        self._postprocess_nans()
 
     def _extract_features_from_group(self, group):
         """
@@ -36,17 +36,35 @@ class DataManager(object):
         """
 
         def add_statistics_of_features(features, name, array, prefix=''):
-            features['{}{}_mean'.format(prefix, name)] = np.mean(array)
-            features['{}{}_var'.format(prefix, name)] = np.var(array)
+            try:
+                array = array.dropna()
+            except:
+                pass
 
-            features['{}{}_min'.format(prefix, name)] = np.min(array)
-            features['{}{}_max'.format(prefix, name)] = np.max(array)
+            if len(array) != 0:
+                features['{}{}_mean'.format(prefix, name)] = np.mean(array)
+                features['{}{}_var'.format(prefix, name)] = np.var(array)
 
-            features['{}{}_num'.format(prefix, name)] = len(array)
+                features['{}{}_min'.format(prefix, name)] = np.min(array)
+                features['{}{}_max'.format(prefix, name)] = np.max(array)
 
-            # percentiles
-            for p in [15, 30, 45, 60, 75, 90]:
-                features['{}{}_{}p'.format(prefix, name, p)] = np.percentile(array, p)
+                features['{}{}_num'.format(prefix, name)] = len(array)
+
+                # percentiles
+                for p in [15, 30, 45, 60, 75, 90]:
+                    features['{}{}_{}p'.format(prefix, name, p)] = np.percentile(array, p)
+            else:
+                features['{}{}_mean'.format(prefix, name)] = np.nan
+                features['{}{}_var'.format(prefix, name)] = np.nan
+
+                features['{}{}_min'.format(prefix, name)] = np.nan
+                features['{}{}_max'.format(prefix, name)] = np.nan
+
+                features['{}{}_num'.format(prefix, name)] = len(array)
+
+                # percentiles
+                for p in [15, 30, 45, 60, 75, 90]:
+                    features['{}{}_{}p'.format(prefix, name, p)] = np.nan
 
             return features
 
@@ -68,7 +86,7 @@ class DataManager(object):
 
         features = add_statistics_of_features(
             features, 'var_lat_lon_by_user',
-            group_by_user.apply(lambda group: group['ulat'].var()+group['ulon'].var()),
+            group_by_user.apply(lambda group: group['ulat'].var() + group['ulon'].var()),
             prefix='_'
         )
         
@@ -101,9 +119,9 @@ class DataManager(object):
                             'netatmo_humidity_percent',"netatmo_wind_speed_kmh","netatmo_wind_gust_speed_kmh"]:
                 col = neighbor_stations[colname].dropna()
                 if len(col)!=0:
-                    features['netatmo_' + colname + "_mean"], features['netatmo_' + colname + "_var"] = col.mean(), col.var()
+                    features[colname + "_mean"], features[colname + "_var"] = col.mean(), col.var()
                 else:
-                    features['netatmo_' + colname + "_mean"], features['netatmo_' + colname + "_var"] = np.nan, np.nan
+                    features[colname + "_mean"], features[colname + "_var"] = np.nan, np.nan
 
         return features
 
@@ -118,15 +136,29 @@ class DataManager(object):
 
         self.hackathon_tosubmit_path = pj(self.raw_data_path, 'hackathon_tosubmit.tsv')
 
-    def _preprocess_nans(self):
+    def _postprocess_nans(self):
         self.X_train = self.X_train.fillna(-999.)
         self.X_test = self.X_test.fillna(-999.)
+
+    def _preprocess_nans(self, df):
+        df.loc[df['radio'] == -999, 'radio'] = np.nan
+        df.loc[df['LocationSpeed'] == -999, 'LocationSpeed'] = np.nan
+        df.loc[df['LAC'] == 65535, 'LAC'] = np.nan
+        df.loc[df['LocationPrecision'] == -21912, 'LocationPrecision'] = np.nan
+        df.loc[df['range'] == -999, 'range'] = np.nan
+        df.loc[df['LocationDirection'] == -999, 'LocationDirection'] = np.nan
+        df.loc[df['cell_lon'] == -999, 'cell_lon'] = np.nan
+        df.loc[df['cell_lat'] == -999, 'cell_lat'] = np.nan
+        df.loc[df['SignalStrength'] == -2147483647, 'SignalStrength'] = np.nan
+
+        return df
 
     def _preprocess_train(self):
         # train df
         print('Loading train df...')
         self.df_train = pd.read_csv(self.train_path, sep='\t',dtype=json.load(open(self.train_col_dtypes_path)),
                                     nrows=self.nrows)
+        self.df_train = self._preprocess_nans(self.df_train)      
 
         # netatmo df
         print('Loading train netatmo df...')
@@ -162,6 +194,7 @@ class DataManager(object):
         print('Loading test df...')
         self.df_test = pd.read_csv(self.test_path, sep='\t',dtype=json.load(open(self.test_col_dtypes_path)),
                                    nrows=self.nrows)
+        self.df_test = self._preprocess_nans(self.df_test)  
 
         print('Loading test netatmo df')
         self.netatmo_df_test = pd.read_csv(self.test_netatmo_path, na_values="None", sep='\t',dtype={'hour_hash': "uint64"})
