@@ -28,10 +28,27 @@ class DataManager(object):
         self._preprocess_train()
         self._preprocess_test()
 
+        # self._preprocess_nans()
+
     def _extract_features_from_group(self, group):
         """
         group is df_train.groupby(["city_code","sq_x","sq_y","hour_hash"]) group
         """
+
+        def add_statistics_of_features(features, name, array, prefix=''):
+            features['{}{}_mean'.format(prefix, name)] = np.mean(array)
+            features['{}{}_var'.format(prefix, name)] = np.var(array)
+
+            features['{}{}_min'.format(prefix, name)] = np.min(array)
+            features['{}{}_max'.format(prefix, name)] = np.max(array)
+
+            features['{}{}_num'.format(prefix, name)] = len(array)
+
+            # percentiles
+            for p in [15, 30, 45, 60, 75, 90]:
+                features['{}{}_{}p'.format(prefix, name, p)] = np.percentile(array, p)
+
+            return features
 
         features = {}
 
@@ -42,18 +59,33 @@ class DataManager(object):
         features['square_lon'] = square['sq_lon']
         features['time_of_day'] = square['day_hour']
 
-        # signal strength
-        features['signal_mean'] = group['SignalStrength'].mean()
-        features['signal_var'] = group['SignalStrength'].var()
+        # statistics of features
+        features = add_statistics_of_features(features, 'SignalStrength', group['SignalStrength'])
+        features = add_statistics_of_features(features, 'LocationAltitude', group['LocationAltitude'], prefix='_')
 
         # features for each user
         group_by_user = group.groupby('u_hashed')
-        group_by_user.apply(lambda group: group['ulat'].var()+group['ulon'].var())
+
+        features = add_statistics_of_features(
+            features, 'var_lat_lon_by_user',
+            group_by_user.apply(lambda group: group['ulat'].var()+group['ulon'].var()),
+            prefix='_'
+        )
         
         features['num_users'] = len(group_by_user)
-        features['mean_entries_per_user'] = group_by_user.apply(len).mean()
-        features['mean_user_signal_var'] = group_by_user.apply(
-            lambda user_entries: user_entries['SignalStrength'].var()).mean()
+
+        features = add_statistics_of_features(
+            features, 'entries_per_user',
+            group_by_user.apply(len),
+            prefix='_'
+        )
+
+        features = add_statistics_of_features(
+            features, 'user_signal_var',
+            group_by_user.apply(lambda user_entries: user_entries['SignalStrength'].var()),
+            prefix='_'
+        )
+        
         
         # netatmo features
         if square['hour_hash'] in self.netatmo_hour_hash_to_data:
@@ -86,6 +118,10 @@ class DataManager(object):
 
         self.hackathon_tosubmit_path = pj(self.raw_data_path, 'hackathon_tosubmit.tsv')
 
+    def _preprocess_nans(self):
+        self.X_train = self.X_train.fillna(-999.)
+        self.X_test = self.X_test.fillna(-999.)
+
     def _preprocess_train(self):
         # train df
         print('Loading train df...')
@@ -114,7 +150,7 @@ class DataManager(object):
         del self.df_train
         del self.df_train_netatmo, self.netatmo_hour_hash_to_data, self.netatmo_hour_hash_to_kdtree
 
-        X = pd.DataFrame(X).fillna(-999.)
+        X = pd.DataFrame(X)
         y = np.array(y)
         block_ids = pd.DataFrame(block_ids, columns=["city_code","sq_x","sq_y","hour_hash","hours_since"])
 
