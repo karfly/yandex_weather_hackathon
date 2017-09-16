@@ -25,8 +25,55 @@ class DataManager(object):
         self.nrows = nrows
 
         self._setup_paths()
-        self.X_train, self.y_train, self.X_val, self.y_val = self._preprocess_train()
-        self.X_test = self._preprocess_test()
+        self._preprocess_train()
+        self._preprocess_test()
+
+    def _extract_features_from_group(self, group):
+        """
+        group is df_train.groupby(["city_code","sq_x","sq_y","hour_hash"]) group
+        """
+
+        features = {}
+
+        # square features
+        square = {col: group[col].iloc[0] for col in group.columns}
+        
+        features['square_lat'] = square['sq_lat']
+        features['square_lon'] = square['sq_lon']
+        features['time_of_day'] = square['day_hour']
+
+        # signal strength
+        features['signal_mean'] = group['SignalStrength'].mean()
+        features['signal_var'] = group['SignalStrength'].var()
+
+        # features for each user
+        group_by_user = group.groupby('u_hashed')
+        group_by_user.apply(lambda group: group['ulat'].var()+group['ulon'].var())
+        
+        features['num_users'] = len(group_by_user)
+        features['mean_entries_per_user'] = group_by_user.apply(len).mean()
+        features['mean_user_signal_var'] = group_by_user.apply(
+            lambda user_entries: user_entries['SignalStrength'].var()).mean()
+        
+        # netatmo features
+        if square['hour_hash'] in self.netatmo_hour_hash_to_data:
+            local_stations, neighbors = self.netatmo_hour_hash_to_data[square['hour_hash']], self.netatmo_hour_hash_to_kdtree[square['hour_hash']]
+            [distances], [neighbor_ids] = neighbors.query([(square['sq_lat'], square['sq_lon'])],k=10)
+
+            neighbor_stations = local_stations.iloc[neighbor_ids]
+
+            features['netatmo_distance_to_closest_station'] = np.min(distances)
+            features['netatmo_mean_distance_to_station'] = np.mean(distances)
+
+            for colname in ['netatmo_pressure_mbar','netatmo_temperature_c','netatmo_sum_rain_24h',
+                            'netatmo_humidity_percent',"netatmo_wind_speed_kmh","netatmo_wind_gust_speed_kmh"]:
+                col = neighbor_stations[colname].dropna()
+                if len(col)!=0:
+                    features['netatmo_' + colname + "_mean"], features['netatmo_' + colname + "_var"] = col.mean(), col.var()
+                else:
+                    features['netatmo_' + colname + "_mean"], features['netatmo_' + colname + "_var"] = np.nan, np.nan
+
+        return features
 
     def _setup_paths(self):
         self.train_path = pj(self.raw_data_path, 'train_{}.tsv'.format(self.city_name))
@@ -71,15 +118,7 @@ class DataManager(object):
         y = np.array(y)
         block_ids = pd.DataFrame(block_ids, columns=["city_code","sq_x","sq_y","hour_hash","hours_since"])
 
-        # train/val split
-        in_train = block_ids['hours_since'] <= np.percentile(block_ids['hours_since'], 85) #leave last 15% for validation
-        
-        print(np.unique(block_ids['hours_since']))
-        X_train, y_train = X[in_train], y[in_train]
-        X_val, y_val = X[~in_train],y[~in_train]
-        print("Training samples: %i; Validation samples: %i" % (len(X_train),len(X_val)))
-
-        return X_train, y_train, X_val, y_val
+        self.X_train, self.y_train = X, y
 
     def _preprocess_test(self):
         # test df
@@ -104,10 +143,8 @@ class DataManager(object):
         del self.df_test 
         del self.netatmo_df_test, self.netatmo_hour_hash_to_data, self.netatmo_hour_hash_to_kdtree
             
-        X_test = pd.DataFrame(X_test)
-        test_block_ids = pd.DataFrame(test_block_ids,columns=["city_code","sq_x","sq_y","hour_hash"])
-
-        return X_test
+        self.X_test = pd.DataFrame(X_test)
+        self.test_block_ids = pd.DataFrame(test_block_ids,columns=["city_code","sq_x","sq_y","hour_hash"])
 
 
     @staticmethod
@@ -122,51 +159,3 @@ class DataManager(object):
         netatmo_hour_hash_to_data = {group: stations_group for group, stations_group in df_by_hour}
         
         return netatmo_hour_hash_to_data, netatmo_hour_hash_to_kdtree
-
-
-    def _extract_features_from_group(self, group):
-        """
-        group is df_train.groupby(["city_code","sq_x","sq_y","hour_hash"]) group
-        """
-
-        features = {}
-
-        # square features
-        square = {col: group[col].iloc[0] for col in group.columns}
-        
-        features['_square_lat'] = square['sq_lat']
-        features['_square_lon'] = square['sq_lon']
-        features['_day_hour'] = square['day_hour']
-
-        # signal strength
-        features['_signal_mean'] = group['SignalStrength'].mean()
-        features['_signal_var'] = group['SignalStrength'].var()
-
-        # features for each user
-        group_by_user = group.groupby('u_hashed')
-        # group_by_user.apply(lambda group: group['ulat'].var()+group['ulon'].var())
-        
-        features['_num_users'] = len(group_by_user)
-        features['_mean_entries_per_user'] = group_by_user.apply(len).mean()
-        features['_mean_user_signal_var'] = group_by_user.apply(
-            lambda user_entries: user_entries['SignalStrength'].var()).mean()
-        
-        # netatmo features
-        if square['hour_hash'] in self.netatmo_hour_hash_to_data:
-            local_stations, neighbors = self.netatmo_hour_hash_to_data[square['hour_hash']], self.netatmo_hour_hash_to_kdtree[square['hour_hash']]
-            [distances], [neighbor_ids] = neighbors.query([(square['sq_lat'], square['sq_lon'])],k=10)
-
-            neighbor_stations = local_stations.iloc[neighbor_ids]
-
-            features['_netatmo_distance_to_closest_station'] = np.min(distances)
-            features['_netatmo_mean_distance_to_station'] = np.mean(distances)
-
-            for colname in ['netatmo_pressure_mbar','netatmo_temperature_c','netatmo_sum_rain_24h',
-                            'netatmo_humidity_percent',"netatmo_wind_speed_kmh","netatmo_wind_gust_speed_kmh"]:
-                col = neighbor_stations[colname].dropna()
-                if len(col)!=0:
-                    features['_netatmo_' + colname + "_mean"], features['_netatmo_' + colname + "_mean"] = col.mean(), col.var()
-                else:
-                    features['_netatmo_' + colname + "_mean"], features['_netatmo_' + colname + "_mean"] = np.nan, np.nan
-
-        return features
