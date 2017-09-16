@@ -119,6 +119,7 @@ class DataManager(object):
         block_ids = pd.DataFrame(block_ids, columns=["city_code","sq_x","sq_y","hour_hash","hours_since"])
 
         self.X_train, self.y_train = X, y
+        self.train_block_ids = block_ids
 
     def _preprocess_test(self):
         # test df
