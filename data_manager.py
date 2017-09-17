@@ -4,7 +4,7 @@ from os.path import join as pj
 import random
 
 import numpy as np
-np.random.seed = 0  # for reproducibility
+np.random.seed(0)  # for reproducibility
 
 import pandas as pd
 
@@ -14,6 +14,7 @@ from tqdm import tqdm
 from sklearn.neighbors import KDTree
 
 import collections
+from functools import partial
 
 
 class DataManager(object):
@@ -37,53 +38,53 @@ class DataManager(object):
         group is df_train.groupby(["city_code","sq_x","sq_y","hour_hash"]) group
         """
 
-        def add_statistics_of_features(features, name, array, prefix=''):
+        def add_statistics_of_features(features, name, array, prefix='', without=[]):
             try:
                 array = array.dropna()
             except:
                 pass
 
-            if len(array) != 0:
-                features['{}{}_mean'.format(prefix, name)] = np.mean(array)
-                features['{}{}_var'.format(prefix, name)] = np.var(array)
+            statnames_and_fuctions = [
+                ('mean', np.mean),
+                ('var', np.var),
+                ('min', np.min),
+                ('max', np.max),
+                ('num', len),
+                ('5p', partial(np.percentile, q=5)),
+                # ('10p', partial(np.percentile, q=10)),
+                ('15p', partial(np.percentile, q=15)),
+                ('85p', partial(np.percentile, q=85)),
+                # ('90p', partial(np.percentile, q=90)),
+                ('95p', partial(np.percentile, q=95)),
+            ]
 
-                features['{}{}_min'.format(prefix, name)] = np.min(array)
-                features['{}{}_max'.format(prefix, name)] = np.max(array)
-
-                features['{}{}_num'.format(prefix, name)] = len(array)
-
-                # percentiles
-                for p in [5, 10, 15, 85, 90, 95]:
-                    features['{}{}_{}p'.format(prefix, name, p)] = np.percentile(array, p)
-            else:
-                features['{}{}_mean'.format(prefix, name)] = np.nan
-                features['{}{}_var'.format(prefix, name)] = np.nan
-
-                features['{}{}_min'.format(prefix, name)] = np.nan
-                features['{}{}_max'.format(prefix, name)] = np.nan
-
-                features['{}{}_num'.format(prefix, name)] = len(array)
-
-                # percentiles
-                for p in [5, 10, 15, 85, 90, 95]:
-                    features['{}{}_{}p'.format(prefix, name, p)] = np.nan
+            for statname, function in statnames_and_fuctions:
+                colname = '{}{}_{}'.format(prefix, name, statname)
+                if len(array) == 0 or name in without:
+                    features[colname] = np.nan
+                else:
+                    features[colname] = function(array)
 
             return features
 
-        def add_statistics_of_cat_features(features, name, array, prefix=''):
+        def add_statistics_of_cat_features(features, name, array, prefix='', without=[]):
             try:
                 array = array.dropna()
             except:
                 pass
 
 
-            if len(array) != 0:
-                features['{}{}_popular_cat'.format(prefix, name)] = collections.Counter(array).most_common()[0][0]
-                features['{}{}_num_cat'.format(prefix, name)] = len(array)
-            else:
-                features['{}{}_popular_cat'.format(prefix, name)] = np.nan
-                features['{}{}_num_cat'.format(prefix, name)] = np.nan
+            statnames_and_fuctions = [
+                ('popular', lambda array: collections.Counter(array).most_common()[0][0]),
+                ('num', len),
+            ]
 
+            for statname, function in statnames_and_fuctions:
+                colname = '{}{}_{}_cat'.format(prefix, name, statname)
+                if len(array) == 0 or name in without:
+                    features[colname] = np.nan
+                else:
+                    features[colname] = function(array)
 
             return features
 
@@ -106,8 +107,6 @@ class DataManager(object):
         features = add_statistics_of_cat_features(features, 'LAC', group['LAC'], prefix='_')
         features = add_statistics_of_cat_features(features, 'LocationPrecision', group['LocationPrecision'], prefix='_')
         features = add_statistics_of_cat_features(features, 'OperatorID', group['OperatorID'], prefix='_')
-        features = add_statistics_of_cat_features(features, 'cell_lat', group['cell_lat'], prefix='_')
-        features = add_statistics_of_cat_features(features, 'cell_lon', group['cell_lon'], prefix='_')
         features = add_statistics_of_cat_features(features, 'device_model_hash', group['device_model_hash'], prefix='_')
 
 
@@ -120,6 +119,8 @@ class DataManager(object):
         features = add_statistics_of_features(features, 'range', group['range'], prefix='_')
         features = add_statistics_of_features(features, 'ulat', group['ulat'], prefix='_')
         features = add_statistics_of_features(features, 'ulon', group['ulon'], prefix='_')
+        features = add_statistics_of_features(features, 'cell_lat', group['cell_lat'], prefix='_')
+        features = add_statistics_of_features(features, 'cell_lon', group['cell_lon'], prefix='_')
 
         # features for each user
         group_by_user = group.groupby('u_hashed')
@@ -161,12 +162,12 @@ class DataManager(object):
                             'netatmo_sum_rain_1h', 'netatmo_wind_direction_deg', 'netatmo_wind_gust_direction_deg',
                             'point_latitude', 'point_longitude']:
                 col = neighbor_stations[colname]
-                features = add_statistics_of_features(features, colname, col, prefix='_')
+                features = add_statistics_of_features(features, colname, col, prefix='_', without=['num'])
 
             # cat
             for colname in ['netatmo_uid']:
                 col = neighbor_stations[colname].dropna()
-                features = add_statistics_of_cat_features(features, colname, col, prefix='_')
+                features = add_statistics_of_cat_features(features, colname, col, prefix='_', without=['num'])
 
         return features
 
