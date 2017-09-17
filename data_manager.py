@@ -1,3 +1,4 @@
+
 import os
 from os.path import join as pj
 
@@ -69,10 +70,12 @@ class DataManager(object):
 
             for statname, function in statnames_and_fuctions:
                 colname = '{}{}_{}'.format(prefix, name, statname)
-                if len(array) == 0 or statname in without:
-                    features[colname] = np.nan
-                else:
-                    features[colname] = function(array)
+
+                if statname not in without:
+                    if len(array) == 0:
+                        features[colname] = np.nan
+                    else:
+                        features[colname] = function(array)
 
             return features
 
@@ -130,6 +133,7 @@ class DataManager(object):
         features = add_statistics_of_features(features, 'ulon', group['ulon'], prefix='_')
         features = add_statistics_of_features(features, 'cell_lat', group['cell_lat'], prefix='_')
         features = add_statistics_of_features(features, 'cell_lon', group['cell_lon'], prefix='_')
+        features = add_statistics_of_features(features, 'u_hashed', group['cell_lon'], prefix='_')
 
         # features for each user
         group_by_user = group.groupby('u_hashed')
