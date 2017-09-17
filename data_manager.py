@@ -137,8 +137,9 @@ class DataManager(object):
         self.hackathon_tosubmit_path = pj(self.raw_data_path, 'hackathon_tosubmit.tsv')
 
     def _postprocess_nans(self):
-        self.X_train = self.X_train.fillna(-999.)
-        self.X_test = self.X_test.fillna(-999.)
+        print('Postprocessing nans...')
+        self.X_train = self.X_train.fillna(-999999.)
+        self.X_test = self.X_test.fillna(-999999.)
 
     def _preprocess_nans(self, df):
         df.loc[df['radio'] == -999, 'radio'] = np.nan
