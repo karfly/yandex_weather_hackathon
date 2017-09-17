@@ -232,10 +232,10 @@ class DataManager(object):
         print('Extracting features...')
         train_by_group = self.df_train.groupby(["city_code","sq_x","sq_y","hour_hash"])
         X, y, block_ids = [], [], []
-        X = applyParallel(train_by_group, self._extract_features_from_group)
+        # X = applyParallel(train_by_group, self._extract_features_from_group)
         for block_id in tqdm(train_by_group.groups):
             group = train_by_group.get_group(block_id)
-            # X.append(self._extract_features_from_group(group))
+            X.append(self._extract_features_from_group(group))
             y.append(group.iloc[0]['rain'])
             block_ids.append(block_id + (group.iloc[0]["hours_since"],))  # for validation
 
@@ -266,10 +266,10 @@ class DataManager(object):
         test_by_group = self.df_test.groupby(["city_code","sq_x","sq_y","hour_hash"])
 
         X_test, test_block_ids = [],[]
-        X_test = applyParallel(test_by_group, self._extract_features_from_group)
+        # X_test = applyParallel(test_by_group, self._extract_features_from_group)
         for block_id in tqdm(test_by_group.groups):
             group = test_by_group.get_group(block_id)
-            # X_test.append(self._extract_features_from_group(group))
+            X_test.append(self._extract_features_from_group(group))
             test_block_ids.append(block_id)
 
         del self.df_test 
