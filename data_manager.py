@@ -13,6 +13,8 @@ from tqdm import tqdm
 
 from sklearn.neighbors import KDTree
 
+import collections
+
 
 class DataManager(object):
     def __init__(self,
@@ -51,7 +53,7 @@ class DataManager(object):
                 features['{}{}_num'.format(prefix, name)] = len(array)
 
                 # percentiles
-                for p in [15, 30, 45, 60, 75, 90]:
+                for p in [5, 10, 15, 85, 90, 95]:
                     features['{}{}_{}p'.format(prefix, name, p)] = np.percentile(array, p)
             else:
                 features['{}{}_mean'.format(prefix, name)] = np.nan
@@ -63,8 +65,25 @@ class DataManager(object):
                 features['{}{}_num'.format(prefix, name)] = len(array)
 
                 # percentiles
-                for p in [15, 30, 45, 60, 75, 90]:
+                for p in [5, 10, 15, 85, 90, 95]:
                     features['{}{}_{}p'.format(prefix, name, p)] = np.nan
+
+            return features
+
+        def add_statistics_of_cat_features(features, name, array, prefix=''):
+            try:
+                array = array.dropna()
+            except:
+                pass
+
+
+            if len(array) != 0:
+                features['{}{}_popular_cat'.format(prefix, name)] = collections.Counter(array).most_common()[0][0]
+                features['{}{}_num_cat'.format(prefix, name)] = len(array)
+            else:
+                features['{}{}_popular_cat'.format(prefix, name)] = np.nan
+                features['{}{}_num_cat'.format(prefix, name)] = np.nan
+
 
             return features
 
@@ -77,9 +96,30 @@ class DataManager(object):
         features['square_lon'] = square['sq_lon']
         features['time_of_day'] = square['day_hour']
 
+        # sq_x, sq_y
+        features['_square_x'] = square['sq_x']
+        features['_square_y'] = square['sq_y']
+
+        # cat features
+        features = add_statistics_of_cat_features(features, 'cell_hash', group['cell_hash'], prefix='_')
+        features = add_statistics_of_cat_features(features, 'radio', group['radio'], prefix='_')
+        features = add_statistics_of_cat_features(features, 'LAC', group['LAC'], prefix='_')
+        features = add_statistics_of_cat_features(features, 'LocationPrecision', group['LocationPrecision'], prefix='_')
+        features = add_statistics_of_cat_features(features, 'OperatorID', group['OperatorID'], prefix='_')
+        features = add_statistics_of_cat_features(features, 'cell_lat', group['cell_lat'], prefix='_')
+        features = add_statistics_of_cat_features(features, 'cell_lon', group['cell_lon'], prefix='_')
+        features = add_statistics_of_cat_features(features, 'device_model_hash', group['device_model_hash'], prefix='_')
+
+
         # statistics of features
         features = add_statistics_of_features(features, 'SignalStrength', group['SignalStrength'])
         features = add_statistics_of_features(features, 'LocationAltitude', group['LocationAltitude'], prefix='_')
+        features = add_statistics_of_features(features, 'LocationSpeed', group['LocationSpeed'], prefix='_')
+        features = add_statistics_of_features(features, 'LocationDirection', group['LocationDirection'], prefix='_')
+        features = add_statistics_of_features(features, 'EventTimestampDelta', group['EventTimestampDelta'], prefix='_')
+        features = add_statistics_of_features(features, 'range', group['range'], prefix='_')
+        features = add_statistics_of_features(features, 'ulat', group['ulat'], prefix='_')
+        features = add_statistics_of_features(features, 'ulon', group['ulon'], prefix='_')
 
         # features for each user
         group_by_user = group.groupby('u_hashed')
@@ -108,7 +148,7 @@ class DataManager(object):
         # netatmo features
         if square['hour_hash'] in self.netatmo_hour_hash_to_data:
             local_stations, neighbors = self.netatmo_hour_hash_to_data[square['hour_hash']], self.netatmo_hour_hash_to_kdtree[square['hour_hash']]
-            [distances], [neighbor_ids] = neighbors.query([(square['sq_lat'], square['sq_lon'])],k=10)
+            [distances], [neighbor_ids] = neighbors.query([(square['sq_lat'], square['sq_lon'])], k=10)
 
             neighbor_stations = local_stations.iloc[neighbor_ids]
 
@@ -116,12 +156,17 @@ class DataManager(object):
             features['netatmo_mean_distance_to_station'] = np.mean(distances)
 
             for colname in ['netatmo_pressure_mbar','netatmo_temperature_c','netatmo_sum_rain_24h',
-                            'netatmo_humidity_percent',"netatmo_wind_speed_kmh","netatmo_wind_gust_speed_kmh"]:
+                            'netatmo_humidity_percent',"netatmo_wind_speed_kmh","netatmo_wind_gust_speed_kmh",
+                            'netatmo_timestamp_delta', 'netatmo_latitude', 'netatmo_longitude',
+                            'netatmo_sum_rain_1h', 'netatmo_wind_direction_deg', 'netatmo_wind_gust_direction_deg',
+                            'point_latitude', 'point_longitude']:
+                col = neighbor_stations[colname]
+                features = add_statistics_of_features(features, colname, col, prefix='_')
+
+            # cat
+            for colname in ['netatmo_uid']:
                 col = neighbor_stations[colname].dropna()
-                if len(col)!=0:
-                    features[colname + "_mean"], features[colname + "_var"] = col.mean(), col.var()
-                else:
-                    features[colname + "_mean"], features[colname + "_var"] = np.nan, np.nan
+                features = add_statistics_of_cat_features(features, colname, col, prefix='_')
 
         return features
 
@@ -154,6 +199,9 @@ class DataManager(object):
 
         return df
 
+    def _preprocess_nans_netatmo(self, df):
+        df.loc[df['netatmo_wind_direction_deg'] == -1, 'netatmo_wind_direction_deg'] = np.nan
+
     def _preprocess_train(self):
         # train df
         print('Loading train df...')
@@ -165,6 +213,7 @@ class DataManager(object):
         print('Loading train netatmo df...')
         self.df_train_netatmo = pd.read_csv(self.train_netatmo_path, na_values='None', sep='\t', dtype={'hour_hash': 'uint64'},
                                             nrows=self.nrows)
+        self._preprocess_nans_netatmo(self.df_train_netatmo)
 
         print('Preprocessing train netatmo df...')
         self.netatmo_hour_hash_to_data, self.netatmo_hour_hash_to_kdtree = DataManager._preprocess_netatmo(self.df_train_netatmo)
@@ -199,6 +248,7 @@ class DataManager(object):
 
         print('Loading test netatmo df')
         self.netatmo_df_test = pd.read_csv(self.test_netatmo_path, na_values="None", sep='\t',dtype={'hour_hash': "uint64"})
+        self._preprocess_nans_netatmo(self.netatmo_df_test)
         self.netatmo_hour_hash_to_data, self.netatmo_hour_hash_to_kdtree = DataManager._preprocess_netatmo(self.netatmo_df_test)
 
         # extracting test features
