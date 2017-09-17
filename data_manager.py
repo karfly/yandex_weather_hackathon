@@ -32,10 +32,12 @@ class DataManager(object):
                  raw_data_path='./data/raw/data',
                  city_name='spb',
                  nrows=None,  # read first nrow of train data
+		 n_stations=10
                  ):
         self.raw_data_path = raw_data_path
         self.city_name = city_name
         self.nrows = nrows
+	self.n_stations = n_stations
 
         self._setup_paths()
         self._preprocess_train()
@@ -162,7 +164,7 @@ class DataManager(object):
         # netatmo features
         if square['hour_hash'] in self.netatmo_hour_hash_to_data:
             local_stations, neighbors = self.netatmo_hour_hash_to_data[square['hour_hash']], self.netatmo_hour_hash_to_kdtree[square['hour_hash']]
-            [distances], [neighbor_ids] = neighbors.query([(square['sq_lat'], square['sq_lon'])], k=10)
+            [distances], [neighbor_ids] = neighbors.query([(square['sq_lat'], square['sq_lon'])], k=self.n_stations)
 
             neighbor_stations = local_stations.iloc[neighbor_ids]
 
